@@ -1,4 +1,4 @@
-# air-horn-piano
+# midi-to-gpio
 MIDI listener to trigger relays from GPIO pins.
 
 ## Requirements
@@ -8,7 +8,7 @@ MIDI listener to trigger relays from GPIO pins.
 - wiringPi
 
 ## Compilation
-`gcc -lwiringPi -lasound -g -Wall air-horn-piano.c`
+`gcc -lwiringPi -lasound -g -Wall midi-to-gpio.c -o midi-to-gpio.out`
 
 ## Pins
 Run `gpio readall`
@@ -16,5 +16,5 @@ Run `gpio readall`
 Connect pins as appropriate to your setup.
 
 ## Playback
-- Run `./a.out` to start listening
+- Run `./midi-to-gpio.out` to start listening
 - On a separate terminal, run `aplaymidi -p 14:0 filename.mid`

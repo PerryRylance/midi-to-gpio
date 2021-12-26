@@ -2,6 +2,7 @@
 #include <wiringPi.h>
 #include <limits.h>
 #include <unistd.h>
+#include <signal.h>
 
 static snd_seq_t *seq_handle;
 static int in_port;
@@ -16,6 +17,8 @@ extern char *optarg;
 #define PIN_STATE_ON	0
 #define PIN_STATE_OFF	1
 
+#define ENUM_DEVICES_BUFFER_SIZE 2048
+
 int pinMapping[NUM_PINS];
 
 void init(int argc, char *argv[])
@@ -23,6 +26,30 @@ void init(int argc, char *argv[])
 	int opt;
 	int client	= 14;
 	int port	= 0;
+
+	printf("Enumerating devices\r\n");
+
+	char *cmd = "aconnect -i";
+	char buffer[ENUM_DEVICES_BUFFER_SIZE];
+	FILE *fp;
+	int scanned;
+
+	if((fp = popen(cmd, "r")) == NULL)
+		printf("Couldn't enumerate devices\r\n");
+	else
+	{
+		while(fgets(buffer, ENUM_DEVICES_BUFFER_SIZE, fp) != NULL)
+		{
+			if(sscanf(buffer, "client %d", &scanned))
+				client = scanned;
+			else if(sscanf(buffer, "\t%d", &scanned))
+				port = scanned;
+		}
+
+		pclose(fp);
+	}
+
+	printf("Parsing command line arguments\r\n");
 
 	while ((opt = getopt(argc, argv, "c:p:")) != -1)
 	{
@@ -38,6 +65,8 @@ void init(int argc, char *argv[])
 				break;
 		}
 	}
+
+	printf("Configuring pins\r\n");
 
 	pinMapping[0] = 0;
 	pinMapping[1] = 1;
@@ -56,26 +85,64 @@ void init(int argc, char *argv[])
 	pinMapping[14] = 27;
 	pinMapping[15] = 28;
 
-	snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_INPUT, 0);
-
 	for(int i = 0; i < NUM_PINS; i++)
 	{
 		pinMode(pinMapping[i], OUTPUT);
 		digitalWrite(pinMapping[i], PIN_STATE_OFF);
 	}
 
-	snd_seq_set_client_name(seq_handle, "LightOrgan");
+	printf("Opening sound sequencer\r\n");
+	snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_INPUT, 0);
+
+	snd_seq_set_client_name(seq_handle, "AirHornPiano");
 	in_port = snd_seq_create_simple_port(
 		seq_handle,
 		"listen:in",
 		SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
 		SND_SEQ_PORT_TYPE_APPLICATION);
 
+	printf("Connecting to %d:%d\r\n", client, port);
+
 	if (snd_seq_connect_from(seq_handle, in_port, client, port) == -1)
 	{
 		perror("Can't connect to port");
 		exit(-1);
 	}
+
+	printf("Listening on %d:%d\r\n", client, port);
+}
+
+void shutdown()
+{
+	unlink("./pid");
+}
+
+void manage_process()
+{
+	printf("Checking for existing process\r\n");
+
+	int pid;
+	FILE *fh;
+
+	if(access( "./pid", F_OK ) == 0) // NB: 0 is OK
+	{
+		fh = fopen("./pid", "r");
+  		fscanf(fh, "%d", &pid); 
+		fclose(fh);
+
+		printf("Killing pid %d\r\n", pid);
+
+		kill(pid, SIGTERM);
+		sleep(1);
+	}
+
+	pid = getpid();
+
+	printf("Writing pid %d\r\n", pid);
+
+	fh = fopen("./pid", "w");
+	fprintf(fh, "%d", pid);
+	fclose(fh);
 }
 
 snd_seq_event_t *midi_read(void)
@@ -123,13 +190,7 @@ void midi_process(snd_seq_event_t *ev)
 
 int main(int argc, char *argv[])
 {
-	/*if( daemon(0,0) != 0)
-	{
-		perror("Failed to start daemon");
-		exit(1);
-	}*/
-
-	printf("Initializing wiringPi\n");
+	printf("Starting wiringPi\r\n");
 
 	if(wiringPiSetup() == -1)
 	{
@@ -137,18 +198,17 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	printf("Initializing MIDI interface\n");
-
+	manage_process();
 	init(argc, argv);
 
-	printf("Listening for events\n");
-	
+	printf("Starting MIDI processing loop\r\n");
+
 	while(1)
 	{
 		midi_process(midi_read());
 	}
 
-	printf("Closing");
+	shutdown();
 
 	return -1;
 }
