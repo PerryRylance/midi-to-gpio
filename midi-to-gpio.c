@@ -18,6 +18,7 @@ extern char *optarg;
 #define PIN_STATE_OFF	1
 
 #define ENUM_DEVICES_BUFFER_SIZE 2048
+#define MIDI_PLAYBACK_COMMAND_BUFFER_SIZE 4096
 
 int pinMapping[NUM_PINS];
 
@@ -110,6 +111,43 @@ void init(int argc, char *argv[])
 	}
 
 	printf("Listening on %d:%d\r\n", client, port);
+
+	if(client == 14 && port == 0)
+	{
+		// NB: Pretty awful way to give the device time to mount. Figure something better out please
+		sleep(2);
+
+		printf("Looking for MIDI files on /media/pi/**\r\n");
+
+		cmd = "ls /media/pi/**/*.mid -R";
+
+		if((fp = popen(cmd, "r")) == NULL)
+			printf("Couldn't list \r\n");
+		else
+		{
+			char *backslash = "/";
+			char midiPlaybackCommand[MIDI_PLAYBACK_COMMAND_BUFFER_SIZE];
+
+			while(fgets(buffer, ENUM_DEVICES_BUFFER_SIZE, fp) != NULL)
+			{
+				if(strncmp(buffer, backslash, strlen(backslash)) == 0)
+				{
+					printf("Playing %s", buffer);
+
+					sprintf(midiPlaybackCommand, "aplaymidi -p 14:0 %s", buffer);
+					popen(midiPlaybackCommand, "r");
+				}
+				else
+				{
+					printf("No MIDI files found\r\n");
+				}
+
+				break;
+			}
+
+			pclose(fp);
+		}
+	}
 }
 
 void shutdown()
